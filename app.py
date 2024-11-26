@@ -10,37 +10,34 @@ def get_db_connection():
     conn.row_factory = sqlite3.Row  # This allows us to access columns by name
     return conn
 
-# Database initialization function
+# Initialize the database if it doesn't already exist
 def initialize_database():
     """Create necessary tables in the database if they don't exist."""
     conn = get_db_connection()
     cursor = conn.cursor()
 
-    # Create user_info table
-    cursor.execute(''' 
+    cursor.execute('''
         CREATE TABLE IF NOT EXISTS user_info (
             user_id INTEGER PRIMARY KEY,
-            name TEXT,
-            email TEXT,
-            age INTEGER
+            name TEXT NOT NULL,
+            email TEXT NOT NULL,
+            age INTEGER NOT NULL
         )
     ''')
 
-    # Create user_spending table
-    cursor.execute(''' 
+    cursor.execute('''
         CREATE TABLE IF NOT EXISTS user_spending (
             user_id INTEGER,
-            money_spent REAL,
-            year INTEGER,
+            money_spent REAL NOT NULL,
+            year INTEGER NOT NULL,
             FOREIGN KEY(user_id) REFERENCES user_info(user_id)
         )
     ''')
 
-    # Create high_spenders table for users who exceed spending threshold
-    cursor.execute(''' 
+    cursor.execute('''
         CREATE TABLE IF NOT EXISTS high_spenders (
             user_id INTEGER PRIMARY KEY,
-            total_spending REAL,
+            total_spending REAL NOT NULL,
             FOREIGN KEY(user_id) REFERENCES user_info(user_id)
         )
     ''')
@@ -48,7 +45,7 @@ def initialize_database():
     conn.commit()
     conn.close()
 
-# Initialize database when the application starts
+# Call this function to initialize the database when the application starts
 initialize_database()
 
 # API Endpoints
@@ -59,13 +56,19 @@ def total_spent(user_id):
     """Fetch the total money spent by a specific user."""
     conn = get_db_connection()
     cursor = conn.cursor()
-    cursor.execute("SELECT SUM(money_spent) AS total_spending FROM user_spending WHERE user_id = ?", (user_id,))
+    cursor.execute("""
+        SELECT SUM(money_spent) AS total_spending
+        FROM user_spending
+        WHERE user_id = ?
+    """, (user_id,))
     row = cursor.fetchone()
     conn.close()
 
-    if row["total_spending"] is None:
-        return jsonify({"message": "No spending data found for the user."}), 404
-    return jsonify({"user_id": user_id, "total_spending": row["total_spending"]}), 200
+    if row['total_spending'] is None:
+        return jsonify({"message": "No spending data found for user."}), 404
+
+    return jsonify({"user_id": user_id, "total_spending": row['total_spending']}), 200
+
 
 # Endpoint 2: Calculate Average Spending by Age Range
 @app.route('/average_spending_by_age', methods=['GET'])
@@ -93,25 +96,25 @@ def average_spending_by_age():
                 WHERE user_info.age >= ?
             """, (start,))
 
-        avg_spent = cursor.fetchone()["avg_spending"]
+        avg_spent = cursor.fetchone()['avg_spending']
         range_label = f"{start}-{end}" if end else f">{start}"
-        results[range_label] = avg_spent or 0
+        results[range_label] = avg_spent if avg_spent else 0
 
     conn.close()
     return jsonify(results), 200
 
-# Endpoint 3: Write User Data to High Spenders (with spending threshold)
+
+# Endpoint 3: Write User Data to High Spenders Table
 @app.route('/write_high_spenders', methods=['POST'])
 def write_high_spenders():
-    """Insert user data into high_spenders if they meet the spending threshold."""
+    """Insert user data into high_spenders if they meet spending threshold."""
     data = request.get_json()
     user_id = data.get("user_id")
     total_spending = data.get("total_spending")
     spending_threshold = 1000  # Example threshold
 
-    # Validate input data
-    if not user_id or not total_spending:
-        return jsonify({"message": "Invalid data format. Please provide user_id and total_spending."}), 400
+    if user_id is None or total_spending is None:
+        return jsonify({"message": "Invalid data format"}), 400
 
     # Only insert if total spending exceeds the threshold
     if total_spending > spending_threshold:
@@ -127,11 +130,26 @@ def write_high_spenders():
             conn.commit()
             conn.close()
             return jsonify({"message": "User data successfully inserted into high_spenders."}), 201
-
         except sqlite3.IntegrityError:
             return jsonify({"message": "User already exists in high_spenders."}), 409
     else:
-        return jsonify({"message": "User spending does not meet the threshold of $1000."}), 400
+        return jsonify({"message": "User spending does not meet the threshold."}), 400
+
+
+# Endpoint 4: Retrieve All Users (for testing purposes)
+@app.route('/all_users', methods=['GET'])
+def all_users():
+    """Fetch a list of all users."""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute("""
+        SELECT user_id, name, email, age FROM user_info
+    """)
+    users = cursor.fetchall()
+    conn.close()
+
+    return jsonify([dict(user) for user in users]), 200
+
 
 # Running the Flask application
 if __name__ == '__main__':
